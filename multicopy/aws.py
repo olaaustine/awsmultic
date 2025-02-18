@@ -16,6 +16,11 @@ logging.basicConfig(level=logging.INFO)
 
 class AWS():
     def check_permission_for_bucket(self, bucket):
+        """_summary_
+
+        Args:
+            bucket (_type_): _description_
+        """        
         logging.info("Checking permissions for the S3 bucket")
 
         command = ['aws', 's3api', 'get-bucket-acl', '--bucket', bucket]
@@ -71,47 +76,43 @@ class AWS():
         except subprocess.CalledProcessError as e:
             logging.error(f"❌ Could not create a multipart upload {str(e)}")
             return None
-        
-    def chunking_parts(self, file_path, chunk_size=500*1024*1024):
-        chunked_files = []  # Store (chunk_name, chunk_data)
-        
+
+    def upload_copy_parts(self, file, new_file, uploadid, bucket, new, chunk_size=500*1024*1024): 
         try:
-            with open(file_path, "rb") as file:
+            with open(file, "rb") as opened_file:
                 part_number = 1
                 while True:
-                    chunk_data = file.read(chunk_size)  # Read file in chunks
+                    chunk_data = opened_file.read(chunk_size)
                     if not chunk_data:
-                        break  # Stop if no more data
-                    
-                    chunk_name = f"chunk_{part_number:03d}"  # e.g., "chunk_001"
-                    chunked_files.append((chunk_name, io.BytesIO(chunk_data)))  # Store in memory
-                    part_number += 1
-        
+                        break  # Exit if no more data to read
+
+                    chunk_name = f"chunk_{part_number:03d}"
+                    hasher = hashlib.sha256()
+                    hasher.update(chunk_data)
+                    sha256_hash = base64.b64encode(hasher.digest()).decode("utf-8")  
+
+                    try:
+                        response = s3_client.upload_part(
+                            Bucket=bucket,
+                            Key=f"{new}/{new_file}",  # Ensure correct key format
+                            PartNumber=part_number,
+                            UploadId=uploadid,
+                            Body=chunk_data,
+                            ChecksumSHA256=sha256_hash
+                        )
+                        logging.info(f"✅ Uploaded part {part_number}: {chunk_name} - ETag: {response['ETag']}")
+                        part_number += 1  # Increment after successful upload
+
+                    except Exception as e:
+                        logging.error(f"❌ Failed to upload part {chunk_name} - {str(e)}")
+                        break  # Stop the loop on error (optional)
+
         except FileNotFoundError as e:
-            logging.error(f"❌ Could not chunk file: {str(e)}")
-            return None
-    
-        return chunked_files       # Return list of (chunk_name, chunk_data)
+            logging.error(f"❌ Could not open file: {str(e)}")
+        except Exception as e:
+            logging.error(f"❌ Unexpected error: {str(e)}")
 
-    def upload_copy_parts(self, file, uploadid, bucket, new, chunked_files): 
-        for i, (chunk_name, chunk_data) in enumerate(chunked_files, start=1):
-             # Compute SHA256 checksum
-            hasher = hashlib.sha256()
-            hasher.update(chunk_data.getvalue())  # Read the chunk's bytes
-            sha256_hash = base64.b64encode(hasher.digest()).decode("utf-8")  # Get checksum in hex format
-            try:
-                response = s3_client.upload_part(
-                    Bucket=bucket,
-                    Key=f"{new}/{file}",
-                    PartNumber=i,
-                    UploadId=uploadid,
-                    Body=chunk_data.getvalue(),
-                    ChecksumSHA256=sha256_hash # Directly upload from memory
-                )
-                logging.info(f"✅ Uploaded part {i}: {chunk_name} - ETag: {response['ETag']}")
 
-            except Exception as e:
-                logging.error(f"❌ Failed to upload part {i}: {chunk_name} - {str(e)}")
 
     def list_uploaded_parts(self, file, uploadid, bucket, new):
         command = [
@@ -159,15 +160,3 @@ class AWS():
 
 
 
-if __name__ == '__main__':
-    bucket =  "awsmulticopy"
-    local_file = "/Users/olaaustine/Documents/awsmultic/data/census-data.bin"
-    file = "census-data.bin"
-    new = "test-code"
-    current = "new-folder"
-    aws_class = AWS()
-    chunk_parts = aws_class.chunking_parts(local_file)
-    create_copy = aws_class.create_copy_part(file, new, bucket)
-    upload_copy_parts = aws_class.upload_copy_parts(file, create_copy, bucket, new, chunk_parts)
-    listed_uploaded = aws_class.list_uploaded_parts(file,create_copy,bucket,new)
-    complete = aws_class.complete_multipart_upload(bucket, new, file, create_copy, listed_uploaded)
