@@ -15,10 +15,12 @@ logging.basicConfig(level=logging.INFO)
 
 class AWS:
     def check_permission_for_bucket(self, bucket):
-        """_summary_
+        """
+            Check if "user" has permission for the bucket using S3 get-bucket-acl
 
-        Args:
-            bucket (_type_): _description_
+            Args:
+                bucket (_type_): Bucket name in S3 to check if user has permission for this bucket 
+                Ex of bucket - multicopy
         """
         logging.info("Checking permissions for the S3 bucket")
 
@@ -26,11 +28,19 @@ class AWS:
 
         try:
             result = subprocess.run(command, check=True, capture_output=True)
-            logging.info("User has permission for this bucket", str(result.stdout))
+            logging.info(f"✅User has permission for this bucket {str(result.stdout)}")
         except ProcessLookupError:
             logging.error("User does not have permission for this bucket")
 
     def check_size_of_file(self, file):
+        """
+            Check sizes of file to be moved/copied or uploaded 
+
+            Args:
+                file (_type_): file
+            Returns:
+                _type_: the size of the file in GB
+        """        
         logging.info("Checking the size of the files to determine upload style")
         size = os.path.getsize(file)
         size = size * 1024 * 1024 * 1024
@@ -38,16 +48,17 @@ class AWS:
         return size
 
     def simple_copy_delete(self, file, current, new, bucket):
-        """_summary_
+        """
+            Simple, copy and delete function if size is less than 5GB
 
-        Args:
-            file (_type_): _description_
-            current (_type_): _description_
-            new (_type_): _description_
-            bucket (_type_): _description_
+            Args:
+                file (_type_): file to copy 
+                current (_type_): bucket folder where the file is 
+                new (_type_): bucket folder where the file needs to move to 
+                bucket (_type_): the S3 bucket name 
 
-        Returns:
-            _type_: _description_
+            Returns:
+                _type_: True if complete, return None if not 
         """
         logging.info("File size is below 5GB, so we are moving it the simple way")
 
@@ -71,6 +82,7 @@ class AWS:
                     logging.info(
                         f"✅ File in the old path has been removed, {result_rm.stdout}"
                     )
+                    return True
                 except subprocess.CalledProcessError as e:
                     logging.error(f"❌ File could not be removed. {str(e)}")
                     return None
@@ -79,6 +91,16 @@ class AWS:
             return None
 
     def create_copy_part(self, file, new, bucket):
+        """
+            Create a copy part, the first step in the UploadCopyPart for AWS S3
+            Args:
+                file (_type_): file to copy
+                new (_type_): the new folder to copy the file
+                bucket (_type_): the bucket in which the folders
+
+            Returns:
+                _type_: UploadId
+        """        
         if self.check_size_of_file > 5:
             logging.info("File size is above 5GB, so we have to do a multipart upload")
 
@@ -112,15 +134,16 @@ class AWS:
     def upload_copy_parts(
         self, file, new_file, uploadid, bucket, new, chunk_size=500 * 1024 * 1024
     ):
-        """_summary_
+        """
+            Upload/Copy file using parts and S3 boto client, upload part 
 
-        Args:
-            file (_type_): _description_
-            new_file (_type_): _description_
-            uploadid (_type_): _description_
-            bucket (_type_): _description_
-            new (_type_): _description_
-            chunk_size (_type_, optional): _description_. Defaults to 500*1024*1024.
+            Args:
+                file (_type_): file you want to move
+                new_file (_type_): the new file we are copying to, incase we want to rename 
+                uploadid (_type_): From the response object when you create a copy part
+                bucket (_type_): Bucket where the folders are 
+                new (_type_): new folder
+                chunk_size (_type_, optional): _description_. Defaults to 500*1024*1024.
         """
         try:
             with open(file, "rb") as opened_file:
@@ -161,16 +184,17 @@ class AWS:
             logging.error(f"❌ Unexpected error: {str(e)}")
 
     def list_uploaded_parts(self, file, uploadid, bucket, new):
-        """_summary_
+        """
+            Listing uploaded parts which will be used to complete multipart upload
 
-        Args:
-            file (_type_): _description_
-            uploadid (_type_): _description_
-            bucket (_type_): _description_
-            new (_type_): _description_
+            Args:
+                file (_type_): file we are moving/uploading or copying
+                uploadid (_type_): From the response object when you create a copy part
+                bucket (_type_): S3 bucket
+                new (_type_): new folder
 
-        Returns:
-            _type_: _description_
+            Returns:
+                _type_: A Dictionary containing the JSON object from the AWS S3 response
         """
         command = [
             "aws",
@@ -198,17 +222,18 @@ class AWS:
             return None
 
     def complete_multipart_upload(self, bucket, new, file, uploadid, parts_json):
-        """_summary_
+        """
+            The last step of the AWS S3 Multipart process.
 
-        Args:
-            bucket (_type_): _description_
-            new (_type_): _description_
-            file (_type_): _description_
-            uploadid (_type_): _description_
-            parts_json (_type_): _description_
+            Args:
+                bucket (_type_): S3 bucket
+                new (_type_): New folder
+                file (_type_): file
+                uploadid (_type_): UploadID of the object
+                parts_json (_type_): Uploaded part JSON
 
-        Returns:
-            _type_: _description_
+            Returns:
+                _type_: AWS S3 response or None if it fails
         """
         # using tmp file to create a temporary file to use to complete multipart upload
         with tempfile.NamedTemporaryFile(
