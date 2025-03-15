@@ -28,9 +28,11 @@ class AWS:
 
         try:
             result = subprocess.run(command, check=True, capture_output=True)
+            return True
             logging.info(f"✅User has permission for this bucket {str(result.stdout)}")
         except ProcessLookupError:
             logging.error("User does not have permission for this bucket")
+            return False
 
     def check_size_of_file(self, file):
         """
@@ -100,8 +102,9 @@ class AWS:
 
             Returns:
                 _type_: UploadId
-        """        
-        if self.check_size_of_file > 5:
+        """
+        word = True    
+        if word:
             logging.info("File size is above 5GB, so we have to do a multipart upload")
 
             command = [
@@ -132,7 +135,7 @@ class AWS:
                 return None
 
     def upload_copy_parts(
-        self, file, new_file, uploadid, bucket, new, chunk_size=500 * 1024 * 1024
+        self, file, uploadid, bucket, new, chunk_size=5 * 1024 * 1024
     ):
         """
             Upload/Copy file using parts and S3 boto client, upload part 
@@ -161,7 +164,7 @@ class AWS:
                     try:
                         response = s3_client.upload_part(
                             Bucket=bucket,
-                            Key=f"{new}/{new_file}",  # Ensure correct key format
+                            Key=f"{new}/{file}",  # Ensure correct key format
                             PartNumber=part_number,
                             UploadId=uploadid,
                             Body=chunk_data,
@@ -176,12 +179,15 @@ class AWS:
                         logging.error(
                             f"❌ Failed to upload part {chunk_name} - {str(e)}"
                         )
-                        break  # Stop the loop on error (optional)
-
+                        break  # Stop the loop on error
+                        return False
         except FileNotFoundError as e:
             logging.error(f"❌ Could not open file: {str(e)}")
+            return False
         except Exception as e:
             logging.error(f"❌ Unexpected error: {str(e)}")
+            return False
+        return True
 
     def list_uploaded_parts(self, file, uploadid, bucket, new):
         """
