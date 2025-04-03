@@ -13,8 +13,18 @@ aws = AWS()
 # @click.option('--new_file', '-nfile', required=True, help="New file name")
 @click.option('--chunk_size', '-cs', required=False, type=int, help="Chunk size for multipart upload, the default is 500MB")
 
-def main(bucket, newf, file, chunk_size):
-    """Handles the multipart copy process for an S3 bucket."""
+def main(bucket: str, newf: str, file: str, chunk_size: int) -> None:
+    """
+    Handles the multipart copy process for an S3 bucket.
+
+    Args:
+        bucket (str): Bucket to upload
+        newf (str): New folder to upload in the bucket
+        file (str): File to upload
+        chunk_size (int): optional 
+        
+    """    
+
     if aws.check_permission_for_bucket(bucket):
         id = aws.create_copy_part(file, newf, bucket)
 
