@@ -14,54 +14,58 @@ logging.basicConfig(level=logging.INFO)
 
 
 class AWS:
-    def check_permission_for_bucket(self, bucket):
+    def check_permission_for_bucket(self, bucket: str) -> bool:
         """
             Check if "user" has permission for the bucket using S3 get-bucket-acl
 
             Args:
-                bucket (_type_): Bucket name in S3 to check if user has permission for this bucket 
+                bucket (str): Bucket name in S3 to check if user has permission for this bucket 
                 Ex of bucket - multicopy
+            Returns:
+            bool: True or False if user has permissions
         """
+
         logging.info("Checking permissions for the S3 bucket")
 
         command = ["aws", "s3api", "get-bucket-acl", "--bucket", bucket]
 
         try:
             result = subprocess.run(command, check=True, capture_output=True)
+            logging.info("✅User has permission for this bucket %s", str(result.stdout))
             return True
-            logging.info(f"✅User has permission for this bucket {str(result.stdout)}")
         except ProcessLookupError:
             logging.error("User does not have permission for this bucket")
             return False
 
-    def check_size_of_file(self, file):
+    def check_size_of_file(self, file: str)-> int:
         """
             Check sizes of file to be moved/copied or uploaded 
 
             Args:
-                file (_type_): file
+                file (str): File to be checked
+
             Returns:
-                _type_: the size of the file in GB
-        """        
+                int: size of the file
+        """             
         logging.info("Checking the size of the files to determine upload style")
         size = os.path.getsize(file)
         size = size * 1024 * 1024 * 1024
 
         return size
 
-    def simple_copy_delete(self, file, current, new, bucket):
+    def simple_copy_delete(self, file: str, current: str, new: str, bucket: str) -> bool:
         """
             Simple, copy and delete function if size is less than 5GB
 
             Args:
-                file (_type_): file to copy 
-                current (_type_): bucket folder where the file is 
-                new (_type_): bucket folder where the file needs to move to 
-                bucket (_type_): the S3 bucket name 
+                file (str): file to copy
+                current (str): bucket folder where the file is 
+                new (str): bucket folder where the file needs to move to 
+                bucket (str): the S3 bucket name 
 
             Returns:
-                _type_: True if complete, return None if not 
-        """
+                bool: True if complete, return False if not 
+        """      
         logging.info("File size is below 5GB, so we are moving it the simple way")
 
         command = [
@@ -82,26 +86,26 @@ class AWS:
                         rm_command, check=True, capture_output=True
                     )
                     logging.info(
-                        f"✅ File in the old path has been removed, {result_rm.stdout}"
-                    )
+                        "✅ File in the old path has been removed %s", result_rm.stdout)
                     return True
                 except subprocess.CalledProcessError as e:
-                    logging.error(f"❌ File could not be removed. {str(e)}")
-                    return None
+                    logging.error("❌ File could not be removed. %s", str(e))
+                    return False
         except subprocess.CalledProcessError as e:
-            logging.error(f"❌ File could not be copied, {str(e)}")
-            return None
+            logging.error("❌ File could not be copied %s", str(e))
+            return False
 
-    def create_copy_part(self, file, new, bucket):
+    def create_copy_part(self, file: str, new: str, bucket: str) -> str:
         """
             Create a copy part, the first step in the UploadCopyPart for AWS S3
+
             Args:
-                file (_type_): file to copy
-                new (_type_): the new folder to copy the file
-                bucket (_type_): the bucket in which the folders
+                file (str): The file to be copied
+                new (str): New folder to copy the file
+                bucket (str): Bucket name
 
             Returns:
-                _type_: UploadId
+                str: AWS upload ID 
         """
         word = True    
         if word:
@@ -131,23 +135,25 @@ class AWS:
                     logging.error("❌ Could not create a multipart upload")
                     return None
             except subprocess.CalledProcessError as e:
-                logging.error(f"❌ Could not create a multipart upload {str(e)}")
+                logging.error("❌ Could not create a multipart upload %s", str(e))
                 return None
 
     def upload_copy_parts(
-        self, file, uploadid, bucket, new, chunk_size=5 * 1024 * 1024
-    ):
+        self, file: str, uploadid: str, bucket: str, new: str, chunk_size: int=5 * 1024 * 1024
+    ) -> bool:
         """
             Upload/Copy file using parts and S3 boto client, upload part 
 
             Args:
-                file (_type_): file you want to move
-                new_file (_type_): the new file we are copying to, incase we want to rename 
-                uploadid (_type_): From the response object when you create a copy part
-                bucket (_type_): Bucket where the folders are 
-                new (_type_): new folder
-                chunk_size (_type_, optional): _description_. Defaults to 500*1024*1024.
-        """
+                file (str): file you want to move
+                uploadid (str): From the response object when you create a copy part
+                bucket (str): Bucket where the folders are 
+                new (str): new folder
+                chunk_size (int, optional): Chunking size. Defaults to 500*1024*1024.
+
+            Returns:
+                bool: _description_
+        """        
         try:
             with open(file, "rb") as opened_file:
                 part_number = 1
@@ -170,38 +176,35 @@ class AWS:
                             Body=chunk_data,
                             ChecksumSHA256=sha256_hash,
                         )
-                        logging.info(
-                            f"✅ Uploaded part {part_number}: {chunk_name} - ETag: {response['ETag']}"
-                        )
+                        logging.info("✅ Uploaded part %s: %s - ETag: %s", part_number, chunk_name, response["ETag"])
                         part_number += 1  # Increment after successful upload
 
                     except Exception as e:
                         logging.error(
-                            f"❌ Failed to upload part {chunk_name} - {str(e)}"
+                            "❌ Failed to upload part %s - %s", chunk_name, str(e)
                         )
                         break  # Stop the loop on error
-                        return False
         except FileNotFoundError as e:
-            logging.error(f"❌ Could not open file: {str(e)}")
+            logging.error("❌ Could not open file: %s",str(e))
             return False
         except Exception as e:
-            logging.error(f"❌ Unexpected error: {str(e)}")
+            logging.error("❌ Unexpected error: %s", str(e))
             return False
         return True
 
-    def list_uploaded_parts(self, file, uploadid, bucket, new):
+    def list_uploaded_parts(self, file: str, uploadid: str, bucket: str, new: str) -> object:
         """
             Listing uploaded parts which will be used to complete multipart upload
 
             Args:
-                file (_type_): file we are moving/uploading or copying
-                uploadid (_type_): From the response object when you create a copy part
-                bucket (_type_): S3 bucket
-                new (_type_): new folder
+                file (str): file we are moving/uploading or copying
+                uploadid (str): From the response object when you create a copy part
+                bucket (str):  S3 bucket
+                new (str): new folder
 
             Returns:
-                _type_: A Dictionary containing the JSON object from the AWS S3 response
-        """
+                object:  A Dictionary containing the JSON object from the AWS S3 response
+        """        
         command = [
             "aws",
             "s3api",
@@ -224,23 +227,24 @@ class AWS:
             logging.info("✅ Uploaded parts have been listed")
             return {"Parts": parts_json}
         except subprocess.CalledProcessError as e:
-            logging.error(f"❌ Failed to list parts: {str(e)}")
+            logging.error("❌ Failed to list parts: %s", str(e))
             return None
 
-    def complete_multipart_upload(self, bucket, new, file, uploadid, parts_json):
+    def complete_multipart_upload(self, bucket: str, new: str, file: str, uploadid: str, parts_json: object) -> str :
         """
             The last step of the AWS S3 Multipart process.
 
             Args:
-                bucket (_type_): S3 bucket
-                new (_type_): New folder
-                file (_type_): file
-                uploadid (_type_): UploadID of the object
-                parts_json (_type_): Uploaded part JSON
+                bucket (str): S3 bucket
+                new (str): New folder
+                file (str): file
+                uploadid (str): UploadID of the object
+                parts_json (object): Uploaded part JSON
 
             Returns:
-                _type_: AWS S3 response or None if it fails
-        """
+                str: AWS S3 response or None if it fails
+        """        
+
         # using tmp file to create a temporary file to use to complete multipart upload
         with tempfile.NamedTemporaryFile(
             mode="w", delete=False, suffix=".json"
@@ -265,8 +269,8 @@ class AWS:
 
         try:
             result = subprocess.run(command, check=True, capture_output=True, text=True)
-            logging.info(f"✅ Uploaded file {result.stdout}")
+            logging.info("✅ Uploaded file %s", result.stdout)
             return result.stdout  # Return AWS response
         except subprocess.CalledProcessError as e:
-            logging.error(f"❌ Failed to complete multipart upload: {str(e)}")
+            logging.error("❌ Failed to complete multipart upload: %s", str(e))
             return None
