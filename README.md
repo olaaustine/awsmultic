@@ -6,8 +6,8 @@ Documentation - [here](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Cop
 
 To copy/upload files from local to a remote S3 bucket: 
 
-Commands -
-`python3 -m bin.upload --bucket awsmulticopy --newf new_folder --file data/census-data.bin`
+## Commands 
+```sh python3 -m bin.upload --bucket awsmulticopy --newf new_folder --file data/census-data.bin ```
 
 Ensure your `~/aws/credentials` has the right keys for this bucket 
 
